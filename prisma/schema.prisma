@@ -1,0 +1,328 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum GenerationStatus {
+  CREATED
+  RESERVED
+  SUBMITTED
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum CreditTransactionType {
+  GRANT
+  RESERVE
+  CAPTURE
+  RELEASE
+  REFUND
+  ADJUSTMENT
+}
+
+model User {
+  id                      String               @id @default(cuid())
+  email                   String               @unique
+  role                    Role                 @default(USER)
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  accounts                Account[]
+  sessions                Session[]
+  organizationMemberships OrganizationMember[]
+  workspaces               Workspace[]
+  projects                 Project[]
+  generations              Generation[]
+  creditWallet             CreditWallet?
+}
+
+model Account {
+  id                String   @id @default(cuid())
+  userId            String
+  provider          String
+  providerAccountId String
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Organization {
+  id         String               @id @default(cuid())
+  name       String
+  createdAt  DateTime             @default(now())
+  members    OrganizationMember[]
+  workspaces Workspace[]
+}
+
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  role           Role         @default(USER)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+}
+
+model Workspace {
+  id             String        @id @default(cuid())
+  name           String
+  organizationId String?
+  userId         String?
+  createdAt      DateTime      @default(now())
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects       Project[]
+}
+
+model Project {
+  id          String       @id @default(cuid())
+  name        String
+  workspaceId String
+  ownerId     String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  scenes      Scene[]
+  generations Generation[]
+}
+
+model Scene {
+  id        String  @id @default(cuid())
+  projectId String
+  title     String?
+  order     Int
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  shots     Shot[]
+}
+
+model Shot {
+  id      String @id @default(cuid())
+  sceneId String
+  order   Int
+  prompt  String?
+  scene   Scene  @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+}
+
+model Generation {
+  id                   String           @id @default(cuid())
+  projectId            String?
+  userId               String
+  providerId           String?
+  modelId              String?
+  providerRequestId    String?
+  status               GenerationStatus @default(CREATED)
+  prompt               String
+  model                String
+  durationSeconds      Int?
+  resolution           String?
+  estimatedCostUsd     Decimal?         @db.Decimal(18, 6)
+  actualCostUsd        Decimal?         @db.Decimal(18, 6)
+  billableCredits      Decimal?         @db.Decimal(24, 6)
+  internalProviderCost Decimal?         @db.Decimal(18, 6)
+  nextPollAt           DateTime?
+  pollCount            Int              @default(0)
+  lastProviderStatus   String?
+  lastError            String?
+  correlationId        String           @unique @default(cuid())
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  completedAt          DateTime?
+  user                 User             @relation(fields: [userId], references: [id])
+  project              Project?         @relation(fields: [projectId], references: [id])
+  provider             AIProvider?      @relation(fields: [providerId], references: [id])
+  modelRef             AIModel?         @relation(fields: [modelId], references: [id])
+  assets               GenerationAsset[]
+  creditTransactions   CreditTransaction[]
+  auditEvents          AuditEvent[]
+
+  @@index([status, nextPollAt])
+  @@index([providerRequestId])
+}
+
+model GenerationAsset {
+  id           String     @id @default(cuid())
+  generationId String
+  mediaAssetId String
+  kind         String
+  generation   Generation @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  mediaAsset   MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([generationId, mediaAssetId, kind])
+}
+
+model MediaAsset {
+  id              String            @id @default(cuid())
+  url             String
+  storageProvider String
+  storageKey      String
+  contentType     String?
+  bytes           BigInt?
+  width           Int?
+  height          Int?
+  durationMs      Int?
+  checksum        String?
+  createdAt       DateTime          @default(now())
+  generationLinks GenerationAsset[]
+}
+
+model AIProvider {
+  id          String            @id @default(cuid())
+  key         String            @unique
+  name        String
+  enabled     Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  models      AIModel[]
+  generations Generation[]
+  pricing     ProviderPricing[]
+}
+
+model AIModel {
+  id           String            @id @default(cuid())
+  providerId   String
+  key          String
+  name         String
+  enabled      Boolean           @default(true)
+  provider     AIProvider        @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  capabilities ModelCapability[]
+  generations  Generation[]
+
+  @@unique([providerId, key])
+}
+
+model ModelCapability {
+  id      String  @id @default(cuid())
+  modelId String
+  key     String
+  value   Json
+  model   AIModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([modelId, key])
+}
+
+model ProviderPricing {
+  id         String     @id @default(cuid())
+  providerId String
+  modelKey   String
+  currency   String     @default("USD")
+  unit       String
+  price      Decimal    @db.Decimal(18, 8)
+  activeFrom DateTime   @default(now())
+  activeTo   DateTime?
+  provider   AIProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+}
+
+model CreditWallet {
+  id           String              @id @default(cuid())
+  userId       String              @unique
+  createdAt    DateTime            @default(now())
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions CreditTransaction[]
+}
+
+model CreditTransaction {
+  id             String                @id @default(cuid())
+  walletId       String
+  generationId   String?
+  type           CreditTransactionType
+  amount         Decimal               @db.Decimal(24, 6)
+  idempotencyKey String                @unique
+  metadata       Json?
+  createdAt      DateTime              @default(now())
+  wallet         CreditWallet          @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  generation     Generation?           @relation(fields: [generationId], references: [id])
+
+  @@index([walletId, createdAt])
+}
+
+model SubscriptionPlan {
+  id             String         @id @default(cuid())
+  key            String         @unique
+  name           String
+  monthlyCredits Decimal        @db.Decimal(24, 6)
+  active         Boolean        @default(false)
+  subscriptions  Subscription[]
+}
+
+model Subscription {
+  id                     String           @id @default(cuid())
+  userId                 String?
+  organizationId         String?
+  planId                 String
+  status                 String
+  externalCustomerId     String?
+  externalSubscriptionId String?
+  currentPeriodEnd       DateTime?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  plan                   SubscriptionPlan @relation(fields: [planId], references: [id])
+  invoices               Invoice[]
+}
+
+model Invoice {
+  id                String        @id @default(cuid())
+  subscriptionId    String?
+  externalInvoiceId String?       @unique
+  amountDue         Decimal?      @db.Decimal(18, 2)
+  amountPaid        Decimal?      @db.Decimal(18, 2)
+  currency          String        @default("USD")
+  status            String
+  createdAt         DateTime      @default(now())
+  subscription      Subscription? @relation(fields: [subscriptionId], references: [id])
+}
+
+model BillingEvent {
+  id              String    @id @default(cuid())
+  provider        String
+  externalEventId String    @unique
+  type            String
+  payload         Json
+  processedAt     DateTime?
+  createdAt       DateTime  @default(now())
+}
+
+model AuditEvent {
+  id            String      @id @default(cuid())
+  generationId  String?
+  actorUserId   String?
+  action        String
+  correlationId String?
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+  generation    Generation? @relation(fields: [generationId], references: [id])
+
+  @@index([correlationId])
+}
+
+model FeatureFlag {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  enabled   Boolean  @default(false)
+  metadata  Json?
+  updatedAt DateTime @updatedAt
+}

@@ -1,0 +1,1 @@
+export interface MediaStorageProvider{upload(input:{pathname:string;body:Blob|ArrayBuffer|ReadableStream;contentType?:string}):Promise<{url:string;size?:number;contentType?:string}>;delete(url:string):Promise<void>;getMetadata(url:string):Promise<Record<string,unknown>>;createDownloadAccess(url:string):Promise<string>}

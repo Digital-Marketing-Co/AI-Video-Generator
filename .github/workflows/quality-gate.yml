@@ -13,8 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          node-version: 22
       - run: npm install
       - run: npm run typecheck
       - run: npm run lint
@@ -24,4 +23,4 @@ jobs:
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           DATABASE_URL: postgresql://user:password@localhost:5432/db
           DIRECT_URL: postgresql://user:password@localhost:5432/db
-          AUTH_SECRET: 12345678901234567890123456789012
+          AUTH_SECRET: test-ci-auth-secret-not-production-0001
